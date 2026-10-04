@@ -1,8 +1,9 @@
 {
   "name": "mathter-mcp",
   "version": "0.1.0",
-  "description": "MCP server for Mathter — ask your AI assistant for a printable math worksheet pack and get a PDF on disk.",
+  "description": "MCP server for Mathter \u2014 ask your AI assistant for a printable math worksheet pack and get a PDF on disk.",
   "license": "MIT",
+  "author": "Mathter (https://mathter.ca)",
   "type": "module",
   "keywords": [
     "mcp",
