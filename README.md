@@ -28,8 +28,8 @@ lose it, revoke it and make another; that is normal and costs nothing.
 
 ### 2. Tell your assistant about it
 
-**Claude Desktop** — open Settings → Developer → Edit Config, and add Mathter to
-`mcpServers`:
+**Claude Desktop** — open Settings → Developer → Edit Config, and add the
+`mathter` entry under `mcpServers` (or merge this block into your config file):
 
 ```json
 {
@@ -53,8 +53,10 @@ Then restart Claude Desktop. (The config file lives at
 claude mcp add mathter --env MATHTER_API_KEY=mk_live_YOUR_KEY -- npx -y mathter-mcp
 ```
 
-**Cursor, Windsurf, Zed and friends** — same JSON block as Claude Desktop, in whatever file that
-app uses for MCP servers. The server speaks stdio; there is nothing to host and no port to open.
+**Cursor, Windsurf and friends** — same JSON block as Claude Desktop, in whatever file that
+app uses for MCP servers. Some editors (Zed, for instance) wrap the entry differently — check their
+MCP docs for the exact shape; the command, arguments and `MATHTER_API_KEY` are the same everywhere.
+The server speaks stdio; there is nothing to host and no port to open.
 
 You do not need to install anything first. `npx -y mathter-mcp` fetches it on demand. Node 18 or
 newer is the only requirement.
