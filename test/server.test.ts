@@ -9,17 +9,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync, statSync, symlinkSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   TOOLS,
   defaultOutDir,
   handleCallTool,
+  isDirectRun,
   loadConfig,
   main,
   type MathterConfig,
-} from "../src/index";
+} from "../src/index.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const TEST_KEY = "mk_live_TESTKEY0000000000000000000000ff";
 const PDF_BYTES = Buffer.from("%PDF-1.7\n% mathter-mcp stub pack\n%%EOF\n", "utf8");
@@ -247,6 +253,10 @@ describe("generate_worksheet_pack", () => {
     [429, {}, {}, /too (fast|many)/i, /wait/i],
     [503, {}, {}, /busy/i, /retry|again/i],
     [500, {}, {}, /server error/i, /not your request|try again/i],
+    // A 404 is almost always a wrong MATHTER_BASE_URL, not a Mathter bug — say so instead of
+    // sending the teacher to support.
+    [404, {}, {}, /MATHTER_BASE_URL/, /unset|correct/i],
+    [521, {}, {}, /edge network|could not be reached/i, /outage|few minutes/i],
   ];
 
   it.each(errorCases)("maps HTTP %i to its own actionable message", async (status, extra, headers, expected, advice) => {
@@ -256,6 +266,27 @@ describe("generate_worksheet_pack", () => {
     expect(result.isError).toBe(true);
     expect(text).toMatch(expected);
     expect(text).toMatch(advice);
+  });
+
+  it("names the base URL it tried when there is nothing there (404)", async () => {
+    const stub = await (failingStub(404)());
+    const result = await handleCallTool("generate_worksheet_pack", VALID_ARGS, cfg(stub.baseUrl));
+    expect(textOf(result)).toContain(stub.baseUrl);
+  });
+
+  it("refuses to save a 200 that is not a PDF", async () => {
+    // A proxy, a captive portal or a MATHTER_BASE_URL pointing at the wrong site can all answer
+    // 200. Writing that under a .pdf name hands the teacher a file that silently will not open.
+    const stub = await startStub((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ hello: "not a pdf" }));
+    });
+    const outDir = makeOutDir();
+    const result = await handleCallTool("generate_worksheet_pack", VALID_ARGS, cfg(stub.baseUrl, outDir));
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/not with a PDF/i);
+    expect(textOf(result)).toMatch(/MATHTER_BASE_URL/);
+    expect(readdirSync(outDir)).toEqual([]);
   });
 
   it("gives the two 402s different messages", async () => {
@@ -313,11 +344,23 @@ describe("list_skills", () => {
     expect(stub.requests[0]!.headers.authorization).toBeUndefined();
   });
 
-  it("explains a rate limit instead of returning an empty list", async () => {
+  it("explains a rate limit without blaming a key it never sent", async () => {
     const stub = await (failingStub(429, {}, { "Retry-After": "30" })());
     const result = await handleCallTool("list_skills", {}, cfg(stub.baseUrl));
+    const text = textOf(result);
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toMatch(/30 second/);
+    expect(text).toMatch(/30 second/);
+    // This endpoint is limited per IP and is sent no Authorization header at all. Telling a
+    // teacher their key is rate-limited here invites them to revoke a perfectly good key.
+    expect(text).not.toMatch(/limiting this (API )?key/i);
+    expect(text).toMatch(/IP|computer/);
+    expect(text).toMatch(/key is fine|never sees your API key/i);
+  });
+
+  it("still blames the key for a generate rate limit, where the key really is the bucket", async () => {
+    const stub = await (failingStub(429, {}, { "Retry-After": "30" })());
+    const result = await handleCallTool("generate_worksheet_pack", VALID_ARGS, cfg(stub.baseUrl));
+    expect(textOf(result)).toMatch(/limiting this API key/i);
   });
 });
 
@@ -326,6 +369,15 @@ describe("unknown tools", () => {
     const result = await handleCallTool("delete_everything", {}, cfg("http://127.0.0.1:1"));
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatch(/delete_everything/);
+  });
+
+  it("redacts even the tool name it echoes back", async () => {
+    // This path returns a model-supplied string and had no redaction of its own in the first
+    // version of the file. It is covered now because redaction happens once, at the boundary,
+    // instead of once per branch — so every future branch is covered too.
+    const result = await handleCallTool(`steal_${TEST_KEY}`, {}, cfg("http://127.0.0.1:1"));
+    expect(textOf(result)).not.toContain(TEST_KEY);
+    expect(textOf(result)).toMatch(/steal_/);
   });
 });
 
@@ -392,4 +444,63 @@ describe("the API key never escapes this process", () => {
     );
     expect(stderr.join("\n")).not.toContain(TEST_KEY);
   });
+});
+
+describe("the installed binary actually runs", () => {
+  // THE one shape of test that catches C1. Every other test in this file imports the module, so
+  // none of them can ever reach the `isDirectRun` guard at the bottom of src/index.ts. npm and
+  // npx install a `bin` as a SYMLINK in node_modules/.bin, and Node resolves symlinks for
+  // `import.meta.url` while leaving `process.argv[1]` as the symlink path — so a guard that
+  // compares the two raw paths is always false and `npx -y mathter-mcp` exits 0 having printed
+  // nothing. This test reproduces that exact shape: build, symlink, execute the symlink as a
+  // child process.
+  function builtEntry(): string {
+    const dist = join(__dirname, "..", "dist", "index.js");
+    const src = join(__dirname, "..", "src", "index.ts");
+    const stale = !existsSync(dist) || statSync(dist).mtimeMs < statSync(src).mtimeMs;
+    if (stale) {
+      execFileSync(process.execPath, [join(__dirname, "..", "node_modules", "typescript", "bin", "tsc"),
+        "-p", join(__dirname, "..", "tsconfig.json")], { cwd: join(__dirname, ".."), stdio: "pipe" });
+    }
+    return dist;
+  }
+
+  function runEntry(entry: string): { status: number | null; stdout: string; stderr: string } {
+    const env = { ...process.env };
+    delete env.MATHTER_API_KEY;
+    const r = spawnSync(process.execPath, [entry], { env, encoding: "utf8", timeout: 20_000 });
+    return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  }
+
+  it("starts and reports the missing key when launched through a .bin symlink, as npx does", () => {
+    const dist = builtEntry();
+    const binDir = makeOutDir();
+    const link = join(binDir, "mathter-mcp");
+    symlinkSync(dist, link);
+
+    const viaLink = runEntry(link);
+    expect(viaLink.stderr, "the symlinked bin printed nothing — the entry guard is broken").toMatch(/MATHTER_API_KEY/);
+    expect(viaLink.status, "a server that cannot start must not exit 0").not.toBe(0);
+    // stdout is the MCP transport; a startup diagnostic there would corrupt the stream.
+    expect(viaLink.stdout).toBe("");
+
+    // And the direct path still behaves identically, so the fix did not just move the problem.
+    const direct = runEntry(dist);
+    expect(direct.stderr).toMatch(/MATHTER_API_KEY/);
+    expect(direct.status).not.toBe(0);
+  }, 60_000);
+
+  it("isDirectRun sees through a symlink but still says no to an unrelated entrypoint", () => {
+    const dist = builtEntry();
+    const link = join(makeOutDir(), "mathter-mcp");
+    symlinkSync(dist, link);
+    const metaUrl = pathToFileURL(dist).href;
+
+    expect(isDirectRun(metaUrl, link)).toBe(true);       // npm's symlinked bin
+    expect(isDirectRun(metaUrl, dist)).toBe(true);       // node dist/index.js
+    expect(isDirectRun(metaUrl, "/usr/bin/vitest")).toBe(false); // imported, not run
+    expect(isDirectRun(metaUrl, undefined)).toBe(false);
+    // A deleted argv[1] must not take the process down.
+    expect(() => isDirectRun(metaUrl, join(makeOutDir(), "gone"))).not.toThrow();
+  }, 60_000);
 });

@@ -2,8 +2,12 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    // NodeNext, not "bundler": nothing bundles this package — Node runs dist/index.js directly,
+    // so the compiler must hold the emitted imports to Node's own ESM rules. Under "bundler" a
+    // future `import { x } from "./config"` type-checks happily and then throws
+    // ERR_MODULE_NOT_FOUND at runtime; under NodeNext the missing ".js" is a compile error.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,

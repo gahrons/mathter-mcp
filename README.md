@@ -4,15 +4,17 @@ Ask your AI assistant for a math worksheet pack. Get a printable PDF on your com
 
 > *"Make me a grade 4 times-tables pack for Friday."*
 >
-> → `mathter-grade-4-multiplication-2026-10-04-1532.pdf` in your Downloads folder, cover page,
-> answer keys and all.
+> → `mathter-grade-4-multiplication-2026-10-04-1532.pdf` in your Downloads folder, answer keys
+> included. (Cover and lesson pages come with the Standard plan and up.)
 
 This is a small [Model Context Protocol](https://modelcontextprotocol.io) server that connects
 [Mathter](https://mathter.ca) to Claude Desktop, Claude Code, Cursor, or any other MCP client. It
 does one thing: it turns a plain-English request into a real worksheet pack from your own Mathter
 account, saved as a file you can open and print.
 
-You need a Mathter account and an API key. Both are free to start.
+You need a Mathter account and an API key. Both are free to start: the free plan makes packs of
+up to 2 worksheets with answer keys, and paid plans raise the size and add cover and lesson
+pages.
 
 ---
 
@@ -35,7 +37,7 @@ lose it, revoke it and make another; that is normal and costs nothing.
     "mathter": {
       "command": "npx",
       "args": ["-y", "mathter-mcp"],
-      "env": { "MATHTER_API_KEY": "mk_live_paste_your_key_here" }
+      "env": { "MATHTER_API_KEY": "mk_live_YOUR_KEY" }
     }
   }
 }
@@ -48,7 +50,7 @@ Then restart Claude Desktop. (The config file lives at
 **Claude Code** — one command:
 
 ```bash
-claude mcp add mathter --env MATHTER_API_KEY=mk_live_paste_your_key_here -- npx -y mathter-mcp
+claude mcp add mathter --env MATHTER_API_KEY=mk_live_YOUR_KEY -- npx -y mathter-mcp
 ```
 
 **Cursor, Windsurf, Zed and friends** — same JSON block as Claude Desktop, in whatever file that
@@ -88,7 +90,7 @@ Makes the pack. Only `skill` and `grade` are required; everything else has a sen
 | `style` | `modern`, `classic`, `notebook`, `studio`, `ledger`, `blueprint` | Plan-gated: free has `modern`, Standard adds `classic`/`notebook`, Premium has all six |
 | `difficulty` | `easy`, `medium`, `hard` | Default `medium` |
 | `title` | Printed on the pack | Default "Math Lesson", trimmed at 80 characters |
-| `worksheetCount` | How many sheets | Default 10, capped by plan: free 2, Standard 10, Premium 25 |
+| `worksheetCount` | How many sheets | Capped by plan: free 2, Standard 10, Premium 25. Left out, you get 10 or your cap, whichever is smaller |
 | `problemsPerPage` | Questions per page | Default 12, capped by what fits the page |
 | `includeAnswerKeys` | Answer keys | On by default |
 | `includeCover` / `includeLesson` | Cover page, "how to" page | On by default, Standard and up |
@@ -117,7 +119,7 @@ Set `MATHTER_OUT_DIR` if you would rather packs landed in, say, a shared school 
 
 ```json
 "env": {
-  "MATHTER_API_KEY": "mk_live_paste_your_key_here",
+  "MATHTER_API_KEY": "mk_live_YOUR_KEY",
   "MATHTER_OUT_DIR": "/Users/you/Documents/Worksheets"
 }
 ```
@@ -168,9 +170,10 @@ Still stuck? [mathter.ca/contact](https://mathter.ca/contact).
 
 ## For developers
 
-A thin HTTP client over two endpoints, stdio transport,
-[`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) its only
-runtime dependency. No telemetry, no analytics, no network calls other than the two documented
+A thin HTTP client over two endpoints, stdio transport. One direct runtime dependency —
+[`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) — which
+brings its own tree, so a real install is around 90 packages, the SDK's HTTP-transport
+dependencies among them. No telemetry, no analytics, no network calls other than the two documented
 above. `MATHTER_BASE_URL` points it at a dev instance.
 
 ```bash

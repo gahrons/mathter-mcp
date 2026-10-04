@@ -10,9 +10,10 @@
  * transcript they may paste somewhere else:
  *
  *  1. The API key appears in exactly one place: the Authorization header of the generate call.
- *     Every string that leaves this process — tool output, error text, the one startup line on
- *     stderr — goes through `redact()` first. Server-supplied text is never trusted to be
- *     key-free; see `redact`'s comment.
+ *     Everything leaving this process passes one of exactly TWO redaction boundaries —
+ *     `redactResult` for every tool result and `say` for every stderr line — rather than a
+ *     `redact()` call per message, so a branch added later cannot forget. Server-supplied text
+ *     is never trusted to be key-free; see `redact`'s comment.
  *  2. Nothing is ever written to stdout. stdout is the MCP transport; a stray console.log there
  *     corrupts the protocol stream. Diagnostics go to stderr.
  *  3. The generate tool returns a FILE PATH, not base64. The person asking for a worksheet pack
@@ -31,7 +32,7 @@ import {
   type CallToolResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -119,8 +120,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MathterConfig 
 // Tool definitions
 // ---------------------------------------------------------------------------------------------
 
-// Citations below are to src/app/api/generate/route.ts in the (private) Mathter repo, read at
-// 2026-10-04, cross-checked against the API-keys section of docs/DEPLOY.md.
+// Every cap below mirrors what POST https://mathter.ca/api/generate actually enforces, read
+// off the endpoint's own implementation and its API documentation on 2026-10-04. Re-check them
+// against the live endpoint before changing any number here.
 const GENERATE_SCHEMA = {
   type: "object",
   properties: {
@@ -167,8 +169,9 @@ const GENERATE_SCHEMA = {
       type: "integer",
       minimum: 1,
       description:
-        "How many worksheets in the pack, default 10. Clamped to the account's plan — free 2, " +
-        "Standard 10, Premium 25 — so asking for more is harmless but gets fewer.",
+        "How many worksheets in the pack. Clamped to the account's plan — free 2, Standard 10, " +
+        "Premium 25 — so asking for more is harmless but gets fewer. Omitted, it is 10 or the " +
+        "plan's cap, whichever is smaller: a free account's default pack is 2 sheets.",
     },
     problemsPerPage: {
       type: "integer",
@@ -285,18 +288,35 @@ export const TOOLS: Tool[] = [
 // HTTP error mapping
 // ---------------------------------------------------------------------------------------------
 
+export interface ErrorContext {
+  /** "key" = the authenticated generate endpoint; "public" = /api/skills, which sends no key. */
+  caller: "key" | "public";
+  /** The URL that was actually requested — quoted back when the base URL looks wrong. */
+  url: string;
+}
+
 /**
  * Turn a non-2xx response into something the person reading the chat can act on. The status alone
  * ("402") tells them nothing; "this account is out of worksheet credits for the month" tells them
- * what to do next. Statuses and bodies are from src/app/api/generate/route.ts.
+ * what to do next. The statuses and bodies below are the ones Mathter's API actually returns.
  */
 export function describeHttpError(
   status: number,
   body: { error?: unknown; code?: unknown } | null,
   retryAfter: string | null,
+  ctx: ErrorContext,
 ): string {
   const seconds = Number(retryAfter);
   const wait = Number.isFinite(seconds) && seconds > 0 ? `${Math.ceil(seconds)} seconds` : null;
+  // Cloudflare's own 5xx range: the edge answered, the origin did not. Different advice from a
+  // 500, which means Mathter ran and failed.
+  if (status >= 520 && status <= 527) {
+    return (
+      `Mathter's server could not be reached (HTTP ${status} from its edge network). That is an ` +
+      "outage or a network problem between the edge and the site, not something wrong with this " +
+      "request. Try again in a few minutes."
+    );
+  }
 
   switch (status) {
     case 400:
@@ -326,22 +346,39 @@ export function describeHttpError(
       );
     case 403:
       return (
-        "This account is not allowed to generate packs. Two accounts hit this: an admin/support " +
+        "This account is not allowed to generate packs. Two kinds of account hit this: an admin/support " +
         "account, which has no worksheet access at all, and a member of a school organisation " +
         "whose licence no longer covers them. Use a key from an ordinary teacher account, or ask " +
         "the school's Mathter admin to restore access."
       );
     case 429:
-      return (
-        "Mathter is rate-limiting this key — too fast, too many requests. " +
-        (wait ? `Wait ${wait} and try again.` : "Wait a minute or two and try again.") +
-        " Generating one pack at a time avoids this."
-      );
+      // list_skills sends no key at all and is limited per IP, so blaming "this key" there is
+      // not just imprecise — it invites a teacher to revoke a perfectly good key over it.
+      return ctx.caller === "key"
+        ? "Mathter is rate-limiting this API key — too fast, too many requests. " +
+          (wait ? `Wait ${wait} and try again.` : "Wait a minute or two and try again.") +
+          " Generating one pack at a time avoids this. Your key is fine; nothing needs revoking."
+        : "Mathter is rate-limiting the public skill list, which is limited per computer (by IP) " +
+          "and never sees your API key. " +
+          (wait ? `Wait ${wait} and try again.` : "Wait a minute and try again.") +
+          " Your key is fine; nothing needs revoking.";
     case 503:
       return (
         "Mathter's worksheet renderer is busy and could not take this pack. " +
         (wait ? `Retry in ${wait}.` : "Retry in about 30 seconds.") +
         " Nothing was charged and nothing is broken — it is queue backpressure."
+      );
+    case 404:
+      return (
+        `Nothing is listening at ${ctx.url}. Mathter's own address has that endpoint, so the ` +
+        "usual cause is a wrong MATHTER_BASE_URL — unset it to use https://mathter.ca, or correct " +
+        "it if you meant to point at a different instance."
+      );
+    case 502:
+    case 504:
+      return (
+        `Mathter's server did not answer its front door (HTTP ${status}). That is an outage or a ` +
+        "network problem, not something wrong with this request. Try again in a few minutes."
       );
     case 500:
       return (
@@ -372,9 +409,13 @@ async function readErrorBody(res: Response): Promise<{ parsed: { error?: unknown
   }
 }
 
-/** The server's own words, appended for context — truncated, and redacted like everything else. */
-function serverSaid(text: string, apiKey: string): string {
-  const cleaned = redact(text, apiKey).replace(/\s+/g, " ").trim();
+/**
+ * The server's own words, appended for context — truncated. NOT redacted here: everything this
+ * function feeds goes out through `redactResult`, and scattering the filter is what let two
+ * paths quietly skip it the first time round.
+ */
+function serverSaid(text: string): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
   return `\n\nMathter said: ${cleaned.slice(0, 200)}`;
 }
@@ -500,7 +541,7 @@ async function request(url: string, init: RequestInit, cfg: MathterConfig): Prom
     }
     throw new ToolError(
       `Could not reach Mathter at ${cfg.baseUrl}. Check the internet connection and MATHTER_BASE_URL. ` +
-        `(${redact(String((e as Error)?.message ?? e), cfg.apiKey)})`,
+        `(${String((e as Error)?.message ?? e)})`,
     );
   }
 }
@@ -526,13 +567,25 @@ export async function generateWorksheetPack(args: Args, cfg: MathterConfig): Pro
   if (!res.ok) {
     const { parsed, text } = await readErrorBody(res);
     throw new ToolError(
-      describeHttpError(res.status, parsed, res.headers.get("retry-after")) + serverSaid(text, cfg.apiKey),
+      describeHttpError(res.status, parsed, res.headers.get("retry-after"), {
+        caller: "key",
+        url: `${cfg.baseUrl}/api/generate`,
+      }) + serverSaid(text),
     );
   }
 
   const bytes = Buffer.from(await res.arrayBuffer());
   if (bytes.length === 0) {
     throw new ToolError("Mathter returned an empty file. Nothing was saved; try again.");
+  }
+  // A 200 is not proof of a PDF. A proxy, a captive portal or a misrouted MATHTER_BASE_URL can
+  // all answer 200 with HTML or JSON, and saving that under a .pdf name gives the teacher a file
+  // that silently will not open. Four bytes settle it.
+  if (bytes.subarray(0, 4).toString("latin1") !== "%PDF") {
+    throw new ToolError(
+      `Mathter answered, but not with a PDF — nothing was saved. Check MATHTER_BASE_URL points at ` +
+        `Mathter (currently ${cfg.baseUrl}) and that no proxy is intercepting the request.`,
+    );
   }
 
   mkdirSync(cfg.outDir, { recursive: true });
@@ -560,7 +613,10 @@ export async function listSkills(cfg: MathterConfig): Promise<string> {
   if (!res.ok) {
     const { parsed, text } = await readErrorBody(res);
     throw new ToolError(
-      describeHttpError(res.status, parsed, res.headers.get("retry-after")) + serverSaid(text, cfg.apiKey),
+      describeHttpError(res.status, parsed, res.headers.get("retry-after"), {
+        caller: "public",
+        url: `${cfg.baseUrl}/api/skills`,
+      }) + serverSaid(text),
     );
   }
 
@@ -579,13 +635,35 @@ export async function listSkills(cfg: MathterConfig): Promise<string> {
   return `${skills.length} skills available (grade 0 is kindergarten):\n${lines.join("\n")}`;
 }
 
+/**
+ * The single outbound filter for tool results. Every text block of every result — success,
+ * mapped error, unexpected throw, unknown tool name — passes through here on its way to the
+ * client, so a branch added later cannot opt out of redaction by forgetting to call it. The
+ * first version of this file spread `redact()` over six call sites and two paths had already
+ * missed it; one boundary is the fix, not more diligence.
+ */
+function redactResult(result: CallToolResult, apiKey: string): CallToolResult {
+  return {
+    ...result,
+    content: result.content.map((block) =>
+      block.type === "text" && typeof block.text === "string"
+        ? { ...block, text: redact(block.text, apiKey) }
+        : block,
+    ),
+  };
+}
+
 export async function handleCallTool(name: string, args: Args, cfg: MathterConfig): Promise<CallToolResult> {
+  return redactResult(await runTool(name, args, cfg), cfg.apiKey);
+}
+
+async function runTool(name: string, args: Args, cfg: MathterConfig): Promise<CallToolResult> {
   try {
     if (name === "generate_worksheet_pack") {
-      return { content: [{ type: "text", text: redact(await generateWorksheetPack(args ?? {}, cfg), cfg.apiKey) }] };
+      return { content: [{ type: "text", text: await generateWorksheetPack(args ?? {}, cfg) }] };
     }
     if (name === "list_skills") {
-      return { content: [{ type: "text", text: redact(await listSkills(cfg), cfg.apiKey) }] };
+      return { content: [{ type: "text", text: await listSkills(cfg) }] };
     }
     return {
       isError: true,
@@ -595,10 +673,8 @@ export async function handleCallTool(name: string, args: Args, cfg: MathterConfi
       }],
     };
   } catch (e) {
-    // Belt and braces: every failure, expected or not, is redacted on the way out. An unexpected
-    // throw from fetch or the filesystem must not be the one path that prints a header.
     const message = e instanceof ToolError ? e.message : `mathter-mcp failed: ${String((e as Error)?.message ?? e)}`;
-    return { isError: true, content: [{ type: "text", text: redact(message, cfg.apiKey) }] };
+    return { isError: true, content: [{ type: "text", text: message }] };
   }
 }
 
@@ -630,21 +706,46 @@ const processIO: MainIO = {
 };
 
 export async function main(env: NodeJS.ProcessEnv = process.env, io: MainIO = processIO): Promise<void> {
+  // The second (and last) redaction boundary: nothing reaches stderr except through here.
+  const say = (line: string, apiKey?: string) => io.stderr(redact(line, apiKey));
   let cfg: MathterConfig;
   try {
     cfg = loadConfig(env);
   } catch (e) {
     // Fail here, loudly, rather than letting a missing key become a 401 on the first worksheet.
-    io.stderr(redact(String((e as Error)?.message ?? e)));
+    say(String((e as Error)?.message ?? e));
     io.exit(1);
     return;
   }
   const server = createMcpServer(cfg);
   await server.connect(new StdioServerTransport());
-  io.stderr(`mathter-mcp ${VERSION} ready — ${cfg.baseUrl}, packs saved to ${cfg.outDir}`);
+  say(`mathter-mcp ${VERSION} ready — ${cfg.baseUrl}, packs saved to ${cfg.outDir}`, cfg.apiKey);
 }
 
-const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(entry).href) {
+/**
+ * Is this file the program being run, as opposed to a module someone imported?
+ *
+ * The naive comparison — `import.meta.url === pathToFileURL(process.argv[1]).href` — is WRONG
+ * for the way this package is actually installed. `npm`/`npx` put a `bin` into
+ * `node_modules/.bin` as a SYMLINK; Node resolves symlinks when it computes `import.meta.url`
+ * but leaves `process.argv[1]` as the symlink path it was given. The two never match, `main()`
+ * never runs, and `npx -y mathter-mcp` exits 0 having printed nothing — on macOS and Linux
+ * only, because npm writes a `.cmd` shim with the real path on Windows. Resolve the symlink
+ * first. See the child-process test, which runs the built file through a symlink exactly as
+ * npm would.
+ */
+export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false;
+  let resolved = argv1;
+  try {
+    resolved = realpathSync(argv1);
+  } catch {
+    // argv[1] deleted, or on a filesystem we cannot stat. Fall back to the raw path rather than
+    // taking the process down over a liveness check.
+  }
+  return metaUrl === pathToFileURL(resolved).href;
+}
+
+if (isDirectRun(import.meta.url, process.argv[1])) {
   void main();
 }
