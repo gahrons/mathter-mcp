@@ -162,7 +162,8 @@ The server answers in sentences, not status codes. The ones you may meet:
 | "Out of worksheet credits for the month" | The allowance resets next billing period, or upgrade |
 | "That style is not available on this account's plan" | Drop the style, or upgrade |
 | "This account is not allowed to generate packs" | An admin/support account, or a school licence that no longer covers you |
-| "Mathter is rate-limiting this key" | One pack at a time; wait the number of seconds it names |
+| "Mathter is rate-limiting this API key" | One pack at a time; wait the time it names. Your key is fine, nothing needs revoking |
+| "Mathter is rate-limiting the public skill list" | Per-computer limit on the skill list, which never sends your key. Wait a minute |
 | "The renderer is busy" | Backpressure, not breakage. Retry in half a minute; nothing was charged |
 | "Mathter rejected that configuration" | Usually a skill that isn't taught at that grade — ask for the skill list again |
 
