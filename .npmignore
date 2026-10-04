@@ -1,0 +1,15 @@
+# The published tarball is `files` in package.json (dist/, README.md, LICENSE).
+# This file is the second lock on the same door: anything listed here stays out even
+# if `files` is ever widened or removed.
+src/
+test/
+tsconfig.json
+tsconfig.test.json
+vitest.config.*
+*.tsbuildinfo
+*.map
+.env
+.env.*
+*.pem
+*.key
+node_modules/

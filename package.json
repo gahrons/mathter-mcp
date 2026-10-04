@@ -1,0 +1,47 @@
+{
+  "name": "mathter-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Mathter — ask your AI assistant for a printable math worksheet pack and get a PDF on disk.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "math",
+    "worksheets",
+    "teachers",
+    "mathter"
+  ],
+  "homepage": "https://mathter.ca/api",
+  "bugs": {
+    "url": "https://mathter.ca/contact"
+  },
+  "bin": {
+    "mathter-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}
