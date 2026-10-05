@@ -204,7 +204,7 @@ const GENERATE_SCHEMA = {
     },
     graphBlank: {
       type: "boolean",
-      description: "Use a blank, unlabelled coordinate grid. Only meaningful where the skill prints a graph.",
+      description: "Coordinate grids are blank (unlabelled) by default so students set their own scale. Pass false for a labelled ±10 grid. Only meaningful where the skill prints a graph.",
     },
     unitSystem: {
       type: "string",

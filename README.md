@@ -103,7 +103,7 @@ Makes the pack. Only `skill` and `grade` are required; everything else has a sen
 | `focus` / `focusOrder` | Single-number drill, e.g. the 7 times table | Addition, subtraction, multiplication, division only |
 | `chart` | `{ "mode": "filled" }` or `"blank"` — a times-table chart | Multiplication only |
 | `timed` | Mad-minute drill | The four fact skills only |
-| `diagrams`, `graphBlank`, `unitSystem` | Geometry figures, blank grids, metric/imperial | Only where the skill uses them |
+| `diagrams`, `graphBlank`, `unitSystem` | Geometry figures, blank grids (default; `graphBlank: false` for labelled), metric/imperial | Only where the skill uses them |
 | `shopName` | Branding name on the pack | Premium only; otherwise quietly replaced |
 | `seed` | Reproduce an identical pack | Default random |
 
