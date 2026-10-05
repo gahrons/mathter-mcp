@@ -29,7 +29,9 @@ lose it, revoke it and make another; that is normal and costs nothing.
 ### 2. Tell your assistant about it
 
 **Claude Desktop** — open Settings → Developer → Edit Config, and add the
-`mathter` entry under `mcpServers` (or merge this block into your config file):
+`mathter` entry to the `mcpServers` section (or merge this block into your config file). If the
+file already holds other settings such as `preferences`, `mcpServers` goes next to them at the top
+level, **not inside them** — inside `preferences` it is silently ignored:
 
 ```json
 {
@@ -43,7 +45,8 @@ lose it, revoke it and make another; that is normal and costs nothing.
 }
 ```
 
-Then restart Claude Desktop. (The config file lives at
+Then fully quit Claude Desktop (right-click its icon in the system tray and choose Quit — closing
+the window leaves it running) and open it again. (The config file lives at
 `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS and
 `%APPDATA%\Claude\claude_desktop_config.json` on Windows, if you would rather edit it directly.)
 
