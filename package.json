@@ -13,6 +13,10 @@
     "teachers",
     "mathter"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gahrons/mathter-mcp.git"
+  },
   "homepage": "https://mathter.ca/api",
   "bugs": {
     "url": "https://mathter.ca/contact"
