@@ -38,7 +38,7 @@ level, **not inside them** — inside `preferences` it is silently ignored:
   "mcpServers": {
     "mathter": {
       "command": "npx",
-      "args": ["-y", "mathter-mcp"],
+      "args": ["-y", "github:gahrons/mathter-mcp"],
       "env": { "MATHTER_API_KEY": "mk_live_YOUR_KEY" }
     }
   }
@@ -53,7 +53,7 @@ the window leaves it running) and open it again. (The config file lives at
 **Claude Code** — one command:
 
 ```bash
-claude mcp add mathter --env MATHTER_API_KEY=mk_live_YOUR_KEY -- npx -y mathter-mcp
+claude mcp add mathter --env MATHTER_API_KEY=mk_live_YOUR_KEY -- npx -y github:gahrons/mathter-mcp
 ```
 
 **Cursor, Windsurf and friends** — same JSON block as Claude Desktop, in whatever file that
@@ -61,8 +61,8 @@ app uses for MCP servers. Some editors (Zed, for instance) wrap the entry differ
 MCP docs for the exact shape; the command, arguments and `MATHTER_API_KEY` are the same everywhere.
 The server speaks stdio; there is nothing to host and no port to open.
 
-You do not need to install anything first. `npx -y mathter-mcp` fetches it on demand. Node 18 or
-newer is the only requirement.
+You do not need to install anything first. `npx -y github:gahrons/mathter-mcp` fetches and builds it
+on demand, so the first start takes a little longer than later ones. You need Node 18 or newer and Git.
 
 ### 3. Ask for worksheets
 

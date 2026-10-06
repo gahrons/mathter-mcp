@@ -62,7 +62,7 @@ export const MISSING_KEY_MESSAGE =
   "MATHTER_API_KEY is not set. mathter-mcp cannot do anything without it, so it is stopping now " +
   "rather than failing later with a confusing 401.\n" +
   "Create a key at https://mathter.ca/account (API access), then put it in this server's env, e.g.\n" +
-  '  "mathter": { "command": "npx", "args": ["-y", "mathter-mcp"], ' +
+  '  "mathter": { "command": "npx", "args": ["-y", "github:gahrons/mathter-mcp"], ' +
   '"env": { "MATHTER_API_KEY": "<paste your key here>" } }\n' +
   "Restart your MCP client after saving the config.";
 
