@@ -205,6 +205,23 @@ describe("generate_worksheet_pack", () => {
     expect(text).toMatch(/5 worksheet/);
   });
 
+  it("tells the user the pack is also in their account when the server reports a saved copy", async () => {
+    const stub = await startStub((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/pdf", "X-Pack-Id": "0b7c1c52-8a43-4d3e-9a60-2f1f5a1c9d10" });
+      res.end(PDF_BYTES);
+    });
+    const result = await handleCallTool("generate_worksheet_pack", VALID_ARGS, cfg(stub.baseUrl));
+    const text = textOf(result);
+    expect(text).toContain("also saved in the Mathter account");
+    expect(text).toContain(`${stub.baseUrl}/account#packs`);
+  });
+
+  it("does not claim an account copy when the server sent no pack id", async () => {
+    const stub = await okPdfStub();
+    const result = await handleCallTool("generate_worksheet_pack", VALID_ARGS, cfg(stub.baseUrl));
+    expect(textOf(result)).not.toContain("Your packs");
+  });
+
   it("creates the out dir when it does not exist yet", async () => {
     const stub = await okPdfStub();
     const outDir = join(makeOutDir(), "nested", "packs");

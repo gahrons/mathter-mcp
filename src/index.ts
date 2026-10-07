@@ -592,12 +592,17 @@ export async function generateWorksheetPack(args: Args, cfg: MathterConfig): Pro
   const path = uniquePath(cfg.outDir, packFilename(String(body.skill), Number(body.grade)));
   writeFileSync(path, bytes);
 
+  const savedToAccount = !!res.headers.get("x-pack-id");
   const count = typeof body.worksheetCount === "number" ? body.worksheetCount : 10;
   const kb = Math.max(1, Math.round(bytes.length / 1024));
   return (
     `Saved a grade ${body.grade} ${body.skill} pack to ${path} ` +
     `(${count} worksheets requested — the account's plan may cap the actual number — ${kb} KB). ` +
-    "Open or print that file."
+    "Open or print that file." +
+    (savedToAccount
+      ? ` A copy is also saved in the Mathter account under "Your packs" (${cfg.baseUrl}/account#packs); ` +
+        "on a paid plan it can be downloaded again from any computer after signing in."
+      : "")
   );
 }
 
