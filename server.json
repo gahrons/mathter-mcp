@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ca.mathter/mathter",
+  "title": "Mathter",
+  "description": "Ask your AI assistant for a printable K-12 math worksheet pack and get the PDF on your computer.",
+  "websiteUrl": "https://mathter.ca/api-docs",
+  "repository": {
+    "url": "https://github.com/gahrons/mathter-mcp",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mathter-mcp",
+      "version": "0.1.1",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "MATHTER_API_KEY",
+          "description": "Your Mathter API key (mk_live_...). Create one at https://mathter.ca/account under API access.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MATHTER_OUT_DIR",
+          "description": "Folder to save packs in. Defaults to your Downloads folder.",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

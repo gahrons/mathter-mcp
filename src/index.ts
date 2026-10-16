@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Kept in step with package.json by hand; it is only ever reported, never compared. */
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 const DEFAULT_BASE_URL = "https://mathter.ca";
 
