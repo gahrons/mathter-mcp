@@ -69,6 +69,7 @@ so the first start takes a little longer than later ones. You need Node 18 or ne
 > "What math skills can Mathter do for grade 3?"
 > "Make a 5-page grade 3 subtraction pack called Warm-Ups, easy difficulty."
 > "A blank multiplication chart for grade 4."
+> "How many Mathter packs do I have left this month?"
 > "Ten worksheets of grade 6 fractions, hard, with worked solutions."
 
 The assistant replies with the path to the PDF. Open it and print.
@@ -82,6 +83,11 @@ The assistant replies with the path to the PDF. Open it and print.
 Asks mathter.ca which skills exist right now and which grades each one covers. Your assistant
 should call this before generating, so it picks a real skill rather than guessing. No key is sent
 — that list is public.
+
+### `check_allowance`
+
+Tells you how many packs your account has left, which plan it is on, and the date the allowance
+resets. It uses nothing, so ask any time: "How many Mathter packs do I have left?"
 
 ### `generate_worksheet_pack`
 

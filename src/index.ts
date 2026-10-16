@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Kept in step with package.json by hand; it is only ever reported, never compared. */
-const VERSION = "0.1.1";
+const VERSION = "0.2.0";
 
 const DEFAULT_BASE_URL = "https://mathter.ca";
 
@@ -262,15 +262,26 @@ export const TOOLS: Tool[] = [
     title: "Generate a Mathter worksheet pack",
     description:
       "Generate a printable math worksheet pack as a PDF and save it to this computer, then " +
-      "return the file path. The pack is billed to the Mathter account that owns MATHTER_API_KEY, " +
-      "under that account's normal monthly allowance — the same as making it on mathter.ca. " +
-      "Call list_skills first to choose a valid skill for the grade. Logo and branding come from " +
-      "the account itself and cannot be set here.",
+      "return the file path. Each pack uses one pack from the monthly allowance of the Mathter " +
+      "account that owns MATHTER_API_KEY, the same as making it on mathter.ca; call " +
+      "check_allowance to see how many are left. Call list_skills first to choose a valid skill " +
+      "for the grade. A Premium account's logo prints automatically: the teacher uploads it once " +
+      "at https://mathter.ca/account, so there is nothing to pass here for it.",
     // `as const` above keeps the literal types (so a typo in an enum value is a compile error
     // here rather than a silent runtime oddity); the SDK's Tool type wants a mutable JSON Schema
     // object, hence the one cast.
     inputSchema: GENERATE_SCHEMA as unknown as Tool["inputSchema"],
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "check_allowance",
+    title: "Check the Mathter allowance",
+    description:
+      "How many worksheet packs the account that owns MATHTER_API_KEY has left this period, its " +
+      "plan, and the date the allowance resets. Free to call; it uses nothing. Check it before " +
+      "making several packs, or when the teacher asks how many they have left.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "list_skills",
@@ -640,6 +651,51 @@ export async function listSkills(cfg: MathterConfig): Promise<string> {
   return `${skills.length} skills available (grade 0 is kindergarten):\n${lines.join("\n")}`;
 }
 
+export async function checkAllowance(cfg: MathterConfig): Promise<string> {
+  const url = `${cfg.baseUrl}/api/usage`;
+  const res = await request(
+    url,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: "application/json", "User-Agent": `mathter-mcp/${VERSION}` },
+    },
+    cfg,
+  );
+
+  if (!res.ok) {
+    const { parsed, text } = await readErrorBody(res);
+    // describeHttpError's 503 is about the PDF renderer's queue; here it means the usage count
+    // itself could not be read, and nothing about a renderer applies.
+    if (res.status === 503) {
+      throw new ToolError("Mathter could not check the allowance right now. Try again in a minute." + serverSaid(text));
+    }
+    throw new ToolError(
+      describeHttpError(res.status, parsed, res.headers.get("retry-after"), { caller: "key", url }) + serverSaid(text),
+    );
+  }
+
+  const u = (await res.json().catch(() => null)) as {
+    plan?: string; onTrial?: boolean; used?: number; quota?: number; remaining?: number;
+    resetsAt?: string; maxWorksheets?: number;
+  } | null;
+  if (!u || typeof u.remaining !== "number" || typeof u.quota !== "number") {
+    throw new ToolError(`Mathter answered ${url} without allowance figures. Try again shortly.`);
+  }
+  const reset = u.resetsAt ? new Date(u.resetsAt) : null;
+  const resetText = reset && !Number.isNaN(reset.getTime())
+    ? reset.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Toronto" })
+    : "the start of the next period";
+  const plan = `${u.plan ?? "Mathter"} plan${u.onTrial ? " (free trial)" : ""}`;
+  const perPack = typeof u.maxWorksheets === "number" ? ` Each pack can hold up to ${u.maxWorksheets} worksheets.` : "";
+  if (u.remaining <= 0) {
+    return (
+      `No packs left: all ${u.quota} on the ${plan} are used. The allowance resets on ${resetText}; ` +
+      "to make more before then, upgrade at https://mathter.ca/pricing."
+    );
+  }
+  return `${u.remaining} of ${u.quota} packs left on the ${plan}, resetting on ${resetText}.${perPack}`;
+}
+
 /**
  * The single outbound filter for tool results. Every text block of every result — success,
  * mapped error, unexpected throw, unknown tool name — passes through here on its way to the
@@ -670,11 +726,14 @@ async function runTool(name: string, args: Args, cfg: MathterConfig): Promise<Ca
     if (name === "list_skills") {
       return { content: [{ type: "text", text: await listSkills(cfg) }] };
     }
+    if (name === "check_allowance") {
+      return { content: [{ type: "text", text: await checkAllowance(cfg) }] };
+    }
     return {
       isError: true,
       content: [{
         type: "text",
-        text: `mathter-mcp has no tool called "${name}". It offers generate_worksheet_pack and list_skills.`,
+        text: `mathter-mcp has no tool called "${name}". It offers generate_worksheet_pack, list_skills and check_allowance.`,
       }],
     };
   } catch (e) {

@@ -8,13 +8,15 @@
     "url": "https://github.com/gahrons/mathter-mcp",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mathter-mcp",
-      "version": "0.1.1",
-      "transport": { "type": "stdio" },
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
         {
           "name": "MATHTER_API_KEY",

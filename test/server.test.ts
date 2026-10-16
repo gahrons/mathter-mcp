@@ -154,8 +154,18 @@ describe("configuration", () => {
 });
 
 describe("tool definitions", () => {
-  it("exposes exactly the two documented tools over stdio", () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(["generate_worksheet_pack", "list_skills"]);
+  it("exposes exactly the three documented tools over stdio", () => {
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(["check_allowance", "generate_worksheet_pack", "list_skills"]);
+  });
+
+  it("describes only what the tools can do: allowance via check_allowance, branding set once on mathter.ca", () => {
+    const gen = TOOLS.find((t) => t.name === "generate_worksheet_pack")!;
+    expect(gen.description).toMatch(/check_allowance/);
+    expect(gen.description).toMatch(/mathter\.ca\/account/);
+    expect(gen.description).not.toMatch(/cannot be set here/);
+    const allowance = TOOLS.find((t) => t.name === "check_allowance")!;
+    expect(allowance.annotations?.readOnlyHint).toBe(true);
+    expect(allowance.inputSchema).toMatchObject({ type: "object", properties: {} });
   });
 
   it("requires skill and grade, and points the model at list_skills instead of enumerating skills", () => {
@@ -378,6 +388,62 @@ describe("list_skills", () => {
     const stub = await (failingStub(429, {}, { "Retry-After": "30" })());
     const result = await handleCallTool("generate_worksheet_pack", VALID_ARGS, cfg(stub.baseUrl));
     expect(textOf(result)).toMatch(/limiting this API key/i);
+  });
+});
+
+describe("check_allowance", () => {
+  const usage = (over: Record<string, unknown> = {}) => () =>
+    startStub((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        plan: "Standard", onTrial: false, used: 47, quota: 50, remaining: 3,
+        resetsAt: "2026-11-01T04:00:00.000Z", maxWorksheets: 10, maxVersions: 1, answerKeys: true, ...over,
+      }));
+    });
+
+  it("calls GET /api/usage with the key and reports what is left and when it resets", async () => {
+    const stub = await usage()();
+    const result = await handleCallTool("check_allowance", {}, cfg(stub.baseUrl));
+    const text = textOf(result);
+    expect(result.isError).toBeFalsy();
+    expect(stub.requests[0]!.method).toBe("GET");
+    expect(stub.requests[0]!.url).toBe("/api/usage");
+    expect(stub.requests[0]!.headers.authorization).toBe(`Bearer ${TEST_KEY}`);
+    expect(text).toMatch(/3 of 50 packs left/);
+    expect(text).toMatch(/Standard/);
+    expect(text).toMatch(/November 1, 2026/);
+    expect(text).toMatch(/10 worksheets/);
+  });
+
+  it("says plainly when the account is out of packs", async () => {
+    const stub = await usage({ used: 50, remaining: 0 })();
+    const text = textOf(await handleCallTool("check_allowance", {}, cfg(stub.baseUrl)));
+    expect(text).toMatch(/no packs left/i);
+    expect(text).toMatch(/mathter\.ca\/pricing/);
+  });
+
+  it("mentions a trial when one is running", async () => {
+    const stub = await usage({ onTrial: true })();
+    expect(textOf(await handleCallTool("check_allowance", {}, cfg(stub.baseUrl)))).toMatch(/trial/i);
+  });
+
+  it("blames the key for a 401", async () => {
+    const stub = await (failingStub(401)());
+    const result = await handleCallTool("check_allowance", {}, cfg(stub.baseUrl));
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/did not accept the API key/);
+  });
+
+  it("explains a 503 as a usage lookup problem, not a busy renderer", async () => {
+    const stub = await (failingStub(503, {}, { "Retry-After": "30" })());
+    const text = textOf(await handleCallTool("check_allowance", {}, cfg(stub.baseUrl)));
+    expect(text).toMatch(/could not check/i);
+    expect(text).not.toMatch(/renderer/i);
+  });
+
+  it("never echoes the key, even when the server does", async () => {
+    const stub = await (failingStub(500)());
+    expect(textOf(await handleCallTool("check_allowance", {}, cfg(stub.baseUrl)))).not.toContain(TEST_KEY);
   });
 });
 
